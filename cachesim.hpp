@@ -3,6 +3,11 @@
 
 #include <cinttypes>
 #include <stdint.h>
+#include <math.h>
+#include <memory>
+#include <vector>
+#include <map>
+#include <deque>
 
 struct cache_stats_t {
     uint64_t accesses;
@@ -42,5 +47,65 @@ static const char     DEFAULT_R = LRU;
 static const char     READ = 'r';
 /** Argument to cache_access rw. Indicates a store */
 static const char     WRITE = 'w';
+
+/*
+ * Cache
+ */
+class Cache {
+private:
+	uint64_t cache_size;
+	uint64_t block_size;
+	uint64_t num_blocks; // blocks per set
+	uint64_t num_victim_blocks;
+
+	std::map<uint64_t, CacheSet> sets;
+	std::map<uint64_t, Block> victims;
+	std::deque<uint64_t> victim_track;
+
+	uint64_t tag_mask;
+	uint64_t tag_offset;
+	uint64_t index_mask;
+	uint64_t index_offset;
+	uint64_t get_tag(uint64_t address);
+	uint64_t get_index(uint64_t address);
+public:
+	Cache(uint64_t c, uint64_t b, uint64_t s, uint64_t v);
+	virtual ~Cache();
+
+	cache_stats_t stats;
+	bool write(uint64_t address);
+	bool read(uint64_t address);
+};
+
+/*
+ * Cache set
+ */
+class CacheSet {
+private:
+	std::map<uint64_t, Block> blocks;
+	std::deque<uint64_t> block_track;
+public:
+	CacheSet():blocks(), block_track(){};
+	virtual ~CacheSet();
+	bool isFull();
+	bool has_block(uint64_t tag);
+};
+
+/*
+ * Block
+ */
+class Block {
+private:
+	uint64_t size;
+	uint64_t tag;
+	uint8_t valid;
+public:
+	Block();
+	virtual ~Block();
+
+	virtual void evict();
+};
+
+std::shared_ptr<Cache> cache;
 
 #endif /* CACHESIM_HPP */
