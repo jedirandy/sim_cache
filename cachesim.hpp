@@ -10,6 +10,7 @@
 #include <deque>
 #include <algorithm>
 #include <iostream>
+#include <unordered_map>
 
 #define NONE -1
 
@@ -68,7 +69,9 @@ struct Address {
 	uint64_t tag;
 	uint64_t index;
 	uint64_t offset;
+	bool valid;
 	Address(uint64_t address);
+	Address();
 };
 /*
  * Cache set
@@ -76,27 +79,33 @@ struct Address {
 class CacheSet {
 private:
 	uint64_t num_blocks;
-	std::map<uint64_t, Block> block_map;
 	std::deque<uint64_t> block_queue;
 	char replace_policy;
 	char storage_policy;
-	uint64_t index;
 	uint8_t which_half(uint64_t offset);
 public:
-	CacheSet(uint64_t num_blocks, char sto_p, char rpl_p, uint64_t index): block_map(), block_queue(){
+	int count = 0;
+	int64_t index;
+	std::unordered_map<uint64_t, Block> block_map;
+	CacheSet(uint64_t num_blocks, char sto_p, char rpl_p, uint64_t index) {
 		this->num_blocks = num_blocks;
 		this->replace_policy = rpl_p;
 		this->storage_policy = sto_p;
 		this->index = index;
 	};
+	CacheSet(){};
 	virtual ~CacheSet(){};
-	bool isFull();
+	bool is_full();
 
-	int64_t add(const Address& address); // add a tag, return -1 if no block is popped
+	Address add(const Address& address); // add a tag, return -1 if no block is popped
 	int64_t remove(const Address& address);
 	int64_t remove(uint64_t tag);
-	int64_t replace(uint64_t dest, uint64_t src);
 	bool access(const Address& address);
+	size_t get_map_size(){return block_map.size();};
 };
+
+uint64_t get_tag(uint64_t address);
+uint64_t get_index(uint64_t address);
+uint64_t get_offset(uint64_t address);
 
 #endif /* CACHESIM_HPP */

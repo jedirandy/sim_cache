@@ -1,4 +1,4 @@
-CXXFLAGS := -g -Wall -std=c++0x -lm
+CXXFLAGS := -g -Wall -std=c++0x -lm -D_DEBUG
 CXX=c++
 
 all: cachesim
