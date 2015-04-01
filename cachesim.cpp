@@ -180,11 +180,10 @@ void complete_cache(cache_stats_t *p_stats) {
 	overhead += g_num_victim_blocks * (dirty_bits + 1 + g_tag_bits + g_index_bits + 8 );
 
 	p_stats->storage_overhead = overhead;
-	uint64_t total_bytes = 0;
-	total_bytes += total_num_blocks * ((double)(dirty_bits + valid_bits + controller_bits)/8 + g_block_size);
-	total_bytes += g_num_victim_blocks * ((double)(dirty_bits + 1 + 8)/8 + g_block_size);
+	uint64_t total_bits = 0;
+	total_bits = (total_num_blocks + g_num_victim_blocks) * g_block_size * 8;
 
-	p_stats->storage_overhead_ratio = ((double)overhead/8) / (double) total_bytes;
+	p_stats->storage_overhead_ratio = (double) overhead / (double) total_bits;
 }
 
 uint64_t get_tag(uint64_t address) {
