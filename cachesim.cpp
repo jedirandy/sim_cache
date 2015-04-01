@@ -15,7 +15,8 @@ static char g_storage_policy;
 static char g_replace_policy;
 
 std::map<uint64_t, CacheSet> g_sets;
-CacheSet g_victim;
+//VictimCache g_victim;
+std::shared_ptr<VictimCache> g_victim;
 
 Address::Address(uint64_t address) {
 	this->index = get_index(address);
@@ -68,8 +69,8 @@ void setup_cache(uint64_t c, uint64_t b, uint64_t s, uint64_t v, char st,
 		g_offset_mask |= (1 << i);
 	}
 
-	g_victim = CacheSet(g_num_victim_blocks, st, r, -1);
-
+//	g_victim = VictimCache(g_num_victim_blocks);
+	g_victim.reset(new VictimCache(g_num_victim_blocks));
 	// init cache sets
 	int num_sets = g_cache_size / (g_block_size * g_num_blocks);
 	for (int i = 0; i < num_sets; ++i) {
@@ -97,13 +98,14 @@ void cache_access(char rw, uint64_t address, cache_stats_t* p_stats) {
 	auto& set = g_sets.at(adr.index);
 	if (set.access(adr)) {
 		// hit
-	} else if (g_victim.access(adr)) {
+	} else if (g_victim->access(adr)) {
 		// miss in main, hit in VC
 		// 1. replace the cache in main by the hit cache in VC
 		// 2. move the replaced block to the MRU position
 		auto removed = set.add(adr);
+		g_victim->remove(adr);
 		if (removed.valid)
-			g_victim.add(removed);
+			g_victim->add(removed);
 
 		if (rw == WRITE) {
 			p_stats->write_misses++;
@@ -115,7 +117,7 @@ void cache_access(char rw, uint64_t address, cache_stats_t* p_stats) {
 		// fetch
 		auto removed = set.add(adr);
 		if (removed.valid)
-			g_victim.add(removed);
+			g_victim->add(removed);
 
 		if (rw == WRITE) {
 			p_stats->write_misses++;
@@ -124,6 +126,8 @@ void cache_access(char rw, uint64_t address, cache_stats_t* p_stats) {
 			p_stats->read_misses++;
 			p_stats->read_misses_combined++;
 		}
+
+		p_stats->hit_time += 0.2 * g_num_blocks;
 	}
 }
 
@@ -158,7 +162,7 @@ uint64_t get_offset(uint64_t address) {
  * Cache Set
  */
 bool CacheSet::is_full() {
-	return block_map.size() >= num_blocks;
+	return block_map.size() >= this->num_blocks;
 }
 
 Address CacheSet::add(const Address& address) {
@@ -174,31 +178,20 @@ Address CacheSet::add(const Address& address) {
 		return adr;
 	}
 
+	Address adr;
 	if (is_full()) {
 		// need to evict
 		auto removed = block_queue.back();
-		if (replace_policy == LRU) {
-			auto iter = block_queue.end();
-			iter--;
-			remove(*iter);
-		} else if (replace_policy == NMRU_FIFO) {
-			auto iter = block_queue.begin();
-			iter++;
-			remove(*iter);
-		}
-//		std::cout << block_queue.size() << std::endl;
+		auto removed_block = evict();
 
-		Address adr;
 		adr.tag = removed;
 		adr.index = address.index;
 		adr.valid = true;
-		return adr;
 	}
 	// move to MRU
 	Block block = Block(which_half(address.offset));
 	block_map.insert(std::make_pair(address.tag, block));
 	block_queue.push_front(address.tag);
-	Address adr;
 	return adr;
 }
 
@@ -218,6 +211,22 @@ int64_t CacheSet::remove(uint64_t tag) {
 
 int64_t CacheSet::remove(const Address& address) {
 	return remove(address.tag);
+}
+
+Block CacheSet::evict() {
+	auto iter = block_queue.end();
+	if (replace_policy == LRU) {
+		iter--;
+	} else if (replace_policy == NMRU_FIFO) {
+		auto iter = block_queue.begin();
+		iter = block_queue.begin();
+		iter++;
+	}
+	auto map_iter = block_map.find(*iter);
+	Block block = map_iter->second;
+	block_map.erase(map_iter);
+	block_queue.erase(iter);
+	return block;
 }
 
 bool CacheSet::access(const Address& address) {
@@ -262,4 +271,31 @@ uint8_t CacheSet::which_half(uint64_t offset) {
 	if (offset < g_block_size / 2)
 		return 1;
 	return 2;
+}
+
+/*
+ * Victim
+ */
+VictimCache::VictimCache(uint64_t num_blocks):CacheSet(num_blocks, BLOCKING, LRU, -1) {
+}
+
+Address VictimCache::convert_address(const Address& adr) {
+	Address a;
+	a.tag = ((adr.tag << (g_tag_offset - g_index_offset)) | adr.index ) & g_tag_mask;
+	a.index = adr.index;
+	a.offset = adr.offset;
+	a.valid = true;
+	return a;
+}
+
+Address VictimCache::add(const Address& adr) {
+	return CacheSet::add(convert_address(adr));
+}
+
+int64_t VictimCache::remove(const Address& adr){
+	return CacheSet::remove(convert_address(adr));
+}
+
+bool VictimCache::access(const Address& adr){
+	return CacheSet::access(convert_address(adr));
 }

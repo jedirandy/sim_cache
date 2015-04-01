@@ -60,8 +60,9 @@ class Block {
 private:
 public:
 	uint8_t valid;
-	Block(uint8_t valid): valid(valid) {};
-	Block(): valid(0){};
+	bool is_null;
+	Block(uint8_t valid): valid(valid), is_null(false) {};
+	Block(): valid(0), is_null(true){};
 	virtual ~Block(){};
 };
 
@@ -77,7 +78,7 @@ struct Address {
  * Cache set
  */
 class CacheSet {
-private:
+protected:
 	uint64_t num_blocks;
 	std::deque<uint64_t> block_queue;
 	char replace_policy;
@@ -87,7 +88,7 @@ public:
 	int count = 0;
 	int64_t index;
 	std::unordered_map<uint64_t, Block> block_map;
-	CacheSet(uint64_t num_blocks, char sto_p, char rpl_p, uint64_t index) {
+	CacheSet(uint64_t num_blocks, char sto_p, char rpl_p, int64_t index) {
 		this->num_blocks = num_blocks;
 		this->replace_policy = rpl_p;
 		this->storage_policy = sto_p;
@@ -97,11 +98,24 @@ public:
 	virtual ~CacheSet(){};
 	bool is_full();
 
-	Address add(const Address& address); // add a tag, return -1 if no block is popped
-	int64_t remove(const Address& address);
-	int64_t remove(uint64_t tag);
-	bool access(const Address& address);
+	virtual Address add(const Address& address); // add a tag, return -1 if no block is popped
+	virtual int64_t remove(const Address& address);
+	virtual int64_t remove(uint64_t tag);
+	virtual bool access(const Address& address);
 	size_t get_map_size(){return block_map.size();};
+	virtual Block evict();
+};
+
+class VictimCache: public CacheSet{
+public:
+	VictimCache(uint64_t num_blocks);
+	VictimCache():CacheSet(){};
+	virtual ~VictimCache(){};
+
+	Address convert_address(const Address& address);
+	virtual Address add(const Address& address);
+	virtual bool access(const Address& address);
+	virtual int64_t remove(const Address& address);
 };
 
 uint64_t get_tag(uint64_t address);
