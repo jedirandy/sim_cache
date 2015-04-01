@@ -8,6 +8,10 @@
 #include <vector>
 #include <map>
 #include <deque>
+#include <algorithm>
+#include <iostream>
+
+#define NONE -1
 
 struct cache_stats_t {
     uint64_t accesses;
@@ -49,63 +53,50 @@ static const char     READ = 'r';
 static const char     WRITE = 'w';
 
 /*
- * Cache
+ * Block
  */
-class Cache {
+class Block {
 private:
-	uint64_t cache_size;
-	uint64_t block_size;
-	uint64_t num_blocks; // blocks per set
-	uint64_t num_victim_blocks;
-
-	std::map<uint64_t, CacheSet> sets;
-	std::map<uint64_t, Block> victims;
-	std::deque<uint64_t> victim_track;
-
-	uint64_t tag_mask;
-	uint64_t tag_offset;
-	uint64_t index_mask;
-	uint64_t index_offset;
-	uint64_t get_tag(uint64_t address);
-	uint64_t get_index(uint64_t address);
 public:
-	Cache(uint64_t c, uint64_t b, uint64_t s, uint64_t v);
-	virtual ~Cache();
-
-	cache_stats_t stats;
-	bool write(uint64_t address);
-	bool read(uint64_t address);
+	uint8_t valid;
+	Block(uint8_t valid): valid(valid) {};
+	Block(): valid(0){};
+	virtual ~Block(){};
 };
 
+struct Address {
+	uint64_t tag;
+	uint64_t index;
+	uint64_t offset;
+	Address(uint64_t address);
+};
 /*
  * Cache set
  */
 class CacheSet {
 private:
-	std::map<uint64_t, Block> blocks;
-	std::deque<uint64_t> block_track;
+	uint64_t num_blocks;
+	std::map<uint64_t, Block> block_map;
+	std::deque<uint64_t> block_queue;
+	char replace_policy;
+	char storage_policy;
+	uint64_t index;
+	uint8_t which_half(uint64_t offset);
 public:
-	CacheSet():blocks(), block_track(){};
-	virtual ~CacheSet();
+	CacheSet(uint64_t num_blocks, char sto_p, char rpl_p, uint64_t index): block_map(), block_queue(){
+		this->num_blocks = num_blocks;
+		this->replace_policy = rpl_p;
+		this->storage_policy = sto_p;
+		this->index = index;
+	};
+	virtual ~CacheSet(){};
 	bool isFull();
-	bool has_block(uint64_t tag);
+
+	int64_t add(const Address& address); // add a tag, return -1 if no block is popped
+	int64_t remove(const Address& address);
+	int64_t remove(uint64_t tag);
+	int64_t replace(uint64_t dest, uint64_t src);
+	bool access(const Address& address);
 };
-
-/*
- * Block
- */
-class Block {
-private:
-	uint64_t size;
-	uint64_t tag;
-	uint8_t valid;
-public:
-	Block();
-	virtual ~Block();
-
-	virtual void evict();
-};
-
-std::shared_ptr<Cache> cache;
 
 #endif /* CACHESIM_HPP */
