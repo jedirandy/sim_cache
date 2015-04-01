@@ -4,13 +4,13 @@ uint64_t g_cache_size = 0;
 uint64_t g_block_size = 0;
 uint64_t g_num_blocks = 0; // blocks per set
 uint64_t g_num_victim_blocks = 0;
-
+uint64_t g_tag_bits = 0;
 uint64_t g_tag_mask = 0;
 uint64_t g_tag_offset = 0;
 uint64_t g_index_mask = 0;
 uint64_t g_index_offset = 0;
 uint64_t g_offset_mask = 0;
-
+uint64_t g_index_bits = 0;
 static char g_storage_policy;
 static char g_replace_policy;
 
@@ -52,20 +52,19 @@ void setup_cache(uint64_t c, uint64_t b, uint64_t s, uint64_t v, char st,
 	g_num_victim_blocks = pow(2, v);
 	g_storage_policy = st;
 	g_replace_policy = r;
-
+	g_tag_bits = 64 - c + s;
+	g_index_bits = c - b - s;
 	// update offsets
 	g_index_offset = b;
 	g_tag_offset = c - s;
-
 	// update masks
-	int set_bits = c - b - s;
-	for (int i = 0; i < set_bits; ++i) {
+	for (uint64_t i = 0; i < g_index_bits; ++i) {
 		g_index_mask |= (1 << i);
 	}
-	for (int i = 0; i < 64 - c + s; ++i) {
+	for (uint64_t i = 0; i < 64 - c + s; ++i) {
 		g_tag_mask |= (1 << i);
 	}
-	for (int i = 0; i < b; ++i) {
+	for (uint64_t i = 0; i < b; ++i) {
 		g_offset_mask |= (1 << i);
 	}
 
@@ -143,6 +142,49 @@ void complete_cache(cache_stats_t *p_stats) {
 	p_stats->misses = p_stats->write_misses_combined
 			+ p_stats->read_misses_combined;
 	p_stats->miss_rate = (double) p_stats->misses / (double) p_stats->accesses;
+
+	p_stats->hit_time = ceil(0.2 * g_num_blocks);
+	if (g_storage_policy == BLOCKING) {
+		p_stats->miss_penalty = ceil(
+				0.2 * g_num_blocks + 50 + 0.25 * g_block_size);
+	} else if (g_storage_policy == SUBBLOCKING) {
+		p_stats->miss_penalty = ceil(
+				0.2 * g_num_blocks + 50 + 0.25 * g_block_size / 2);
+	}
+
+	double misses = p_stats->misses;
+	double hits = p_stats->accesses - p_stats->misses;
+	double total = p_stats->accesses;
+	p_stats->avg_access_time = (p_stats->hit_time * hits
+			+ (p_stats->miss_penalty + p_stats->hit_time) * misses) / total;
+
+	uint64_t total_num_blocks = g_cache_size / g_block_size;
+	uint64_t overhead = 0;
+
+	uint64_t dirty_bits = 1;
+	uint64_t valid_bits = 0;
+	uint64_t controller_bits = 0;
+	if (g_storage_policy == BLOCKING) {
+		valid_bits = 1;
+	} else {
+		valid_bits = 2;
+	}
+	if (g_replace_policy == LRU) {
+		controller_bits = 8;
+	} else {
+		controller_bits = 4;
+	}
+	// main cache: num_block * (dirty + valid + tags + LRU controller bits)
+	overhead += total_num_blocks * (dirty_bits + valid_bits + g_tag_bits + controller_bits);
+	// victim: num_blocks * (dirty + valid + tags + index + LRU controller bits)
+	overhead += g_num_victim_blocks * (dirty_bits + 1 + g_tag_bits + g_index_bits + 8 );
+
+	p_stats->storage_overhead = overhead;
+	uint64_t total_bytes = 0;
+	total_bytes += total_num_blocks * ((double)(dirty_bits + valid_bits + controller_bits)/8 + g_block_size);
+	total_bytes += g_num_victim_blocks * ((double)(dirty_bits + 1 + 8)/8 + g_block_size);
+
+	p_stats->storage_overhead_ratio = ((double)overhead/8) / (double) total_bytes;
 }
 
 uint64_t get_tag(uint64_t address) {
