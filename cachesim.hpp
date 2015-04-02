@@ -85,11 +85,13 @@ protected:
 	char replace_policy;
 	char storage_policy;
 	uint8_t which_half(uint64_t offset);
+
 public:
 	int count = 0;
 	int64_t index;
+	uint64_t mru_tag;
 	std::unordered_map<uint64_t, Block> block_map;
-	CacheSet(uint64_t num_blocks, char sto_p, char rpl_p, int64_t index);
+	CacheSet(uint64_t num_blocks, char rpl_p, char sto_p, int64_t index);
 	virtual ~CacheSet(){};
 	bool is_full();
 

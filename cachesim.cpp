@@ -171,9 +171,11 @@ void complete_cache(cache_stats_t *p_stats) {
 		controller_bits = 4;
 	}
 	// main cache: num_block * (dirty + valid + tags + LRU controller bits)
-	overhead += total_num_blocks * (dirty_bits + valid_bits + g_tag_bits + controller_bits);
+	overhead += total_num_blocks
+			* (dirty_bits + valid_bits + g_tag_bits + controller_bits);
 	// victim: num_blocks * (dirty + valid + tags + index + LRU controller bits)
-	overhead += g_num_victim_blocks * (dirty_bits + 1 + g_tag_bits + g_index_bits + 8 );
+	overhead += g_num_victim_blocks
+			* (dirty_bits + 1 + g_tag_bits + g_index_bits + 8);
 
 	p_stats->storage_overhead = overhead;
 	uint64_t total_bits = 0;
@@ -197,12 +199,10 @@ uint64_t get_offset(uint64_t address) {
 /*
  * Cache Set
  */
-CacheSet::CacheSet(uint64_t num_blocks, char sto_p, char rpl_p, int64_t index) {
-	this->num_blocks = num_blocks;
-	this->replace_policy = rpl_p;
-	this->storage_policy = sto_p;
-	this->index = index;
-};
+CacheSet::CacheSet(uint64_t num_blocks, char sto_p, char rpl_p, int64_t index) :
+		num_blocks(num_blocks), replace_policy(rpl_p), storage_policy(sto_p),  index(
+				index), mru_tag(0) {
+}
 
 bool CacheSet::is_full() {
 	return block_map.size() >= this->num_blocks;
@@ -235,10 +235,10 @@ Address CacheSet::add(const Address& address) {
 		adr.index = address.index;
 		adr.valid = true;
 	}
-	// move to MRU
+	// move to the MRU position
 	Block block = Block(address.tag, which_half(address.offset));
 	block_map.insert(std::make_pair(address.tag, block));
-	block_queue.push_front(address.tag);
+	block_queue.emplace_back(address.tag);
 	return adr;
 }
 
@@ -261,21 +261,17 @@ int64_t CacheSet::remove(const Address& address) {
 }
 
 Block CacheSet::evict() {
-	auto iter = block_queue.end();
-	if (replace_policy == LRU) {
-		iter--;
-	} else if (replace_policy == NMRU_FIFO) {
-		iter = block_queue.begin();
-		iter++;
+	auto iter = block_queue.begin();
+	if (replace_policy == NMRU_FIFO) {
+		if (*iter == mru_tag) {
+			iter++;
+		}
 	}
-//	print_queue();
-//	std::cout <<"evicting "<< *iter << std::endl;
 	auto map_iter = block_map.find(*iter);
 	Block block = map_iter->second;
 	block_map.erase(map_iter);
 	block_queue.erase(iter);
 
-//	print_queue();
 	return block;
 }
 
@@ -283,7 +279,7 @@ bool CacheSet::access(const Address& address) {
 	uint64_t tag = address.tag;
 #ifdef _DEBUG
 	std::cout << "accessing tag:" << address.tag << " index:" << address.index
-			<< " offset:" << address.offset << " set number:" << index;
+	<< " offset:" << address.offset << " set number:" << index;
 #endif
 
 	if (block_map.find(tag) != block_map.end()) {
@@ -298,16 +294,19 @@ bool CacheSet::access(const Address& address) {
 			}
 		}
 		// hit
-		// move to the MRU position (front)
-		auto i = std::find(block_queue.begin(), block_queue.end(), tag);
-		auto copy = *i;
-		block_queue.erase(i);
-		block_queue.push_front(copy);
-
+		if (replace_policy == LRU) {
+			// move to the MRU position (front)
+			auto i = std::find(block_queue.begin(), block_queue.end(), tag);
+			auto copy = *i;
+			block_queue.erase(i);
+			block_queue.emplace_back(copy);
+		} else if (replace_policy == NMRU_FIFO) {
+			// update the MRU tag
+			mru_tag = tag;
+		}
 #ifdef _DEBUG
 		std::cout << " hit" << std::endl;
 #endif
-//		print_queue();
 		return true;
 	}
 
@@ -325,21 +324,23 @@ uint8_t CacheSet::which_half(uint64_t offset) {
 }
 
 void CacheSet::print_queue() {
-	for(auto e: block_queue) {
-		std::cout<<e<<",";
+	for (auto e : block_queue) {
+		std::cout << e << ",";
 	}
-	std::cout<<std::endl;
+	std::cout << std::endl;
 }
 
 /*
  * Victim
  */
-VictimCache::VictimCache(uint64_t num_blocks):CacheSet(num_blocks, BLOCKING, LRU, -1) {
+VictimCache::VictimCache(uint64_t num_blocks) :
+		CacheSet(num_blocks, BLOCKING, LRU, -1) {
 }
 
 Address VictimCache::convert_address(const Address& adr) {
 	Address a;
-	a.tag = ((adr.tag << (g_tag_offset - g_index_offset)) | adr.index ) & g_tag_mask;
+	a.tag = ((adr.tag << (g_tag_offset - g_index_offset)) | adr.index)
+			& g_tag_mask;
 	a.index = adr.index;
 	a.offset = adr.offset;
 	a.valid = true;
@@ -350,10 +351,10 @@ Address VictimCache::add(const Address& adr) {
 	return CacheSet::add(convert_address(adr));
 }
 
-int64_t VictimCache::remove(const Address& adr){
+int64_t VictimCache::remove(const Address& adr) {
 	return CacheSet::remove(convert_address(adr));
 }
 
-bool VictimCache::access(const Address& adr){
+bool VictimCache::access(const Address& adr) {
 	return CacheSet::access(convert_address(adr));
 }
