@@ -1,8 +1,8 @@
 #include "cachesim.hpp"
 
-uint64_t g_cache_size = 0;
+uint64_t g_cache_size = 0; // cache size in bytes
 uint64_t g_block_size = 0;
-uint64_t g_num_blocks = 0; // blocks per set
+uint64_t g_num_blocks = 0; // number of blocks per set
 uint64_t g_num_victim_blocks = 0;
 uint64_t g_tag_bits = 0;
 uint64_t g_tag_mask = 0;
@@ -11,25 +11,11 @@ uint64_t g_index_mask = 0;
 uint64_t g_index_offset = 0;
 uint64_t g_offset_mask = 0;
 uint64_t g_index_bits = 0;
-static char g_storage_policy;
-static char g_replace_policy;
+char g_storage_policy;
+char g_replace_policy;
 
 std::map<uint64_t, CacheSet> g_sets;
 std::shared_ptr<CacheSet> g_victim;
-
-Address::Address(uint64_t address) {
-	this->index = get_index(address);
-	this->tag = get_tag(address);
-	this->offset = get_offset(address);
-	this->valid = true;
-}
-
-Address::Address() {
-	this->index = 0;
-	this->tag = 0;
-	this->offset = 0;
-	this->valid = false;
-}
 
 /**
  * Subroutine for initializing the cache. You many add and initialize any global or heap
@@ -157,9 +143,9 @@ void complete_cache(cache_stats_t *p_stats) {
 
 	uint64_t total_num_blocks = g_cache_size / g_block_size;
 	uint64_t overhead = 0;
-	uint64_t dirty_bits = 1;
 	uint64_t valid_bits = 0;
 	uint64_t controller_bits = 0;
+	uint64_t dirty_bits = 1;
 	if (g_storage_policy == BLOCKING) {
 		valid_bits = 1;
 	} else {
@@ -184,6 +170,9 @@ void complete_cache(cache_stats_t *p_stats) {
 	p_stats->storage_overhead_ratio = (double) overhead / (double) total_bits;
 }
 
+/*
+ * Address utils
+ */
 uint64_t get_tag(uint64_t address) {
 	return g_tag_mask & (address >> g_tag_offset);
 }
@@ -196,11 +185,37 @@ uint64_t get_offset(uint64_t address) {
 	return g_offset_mask & address;
 }
 
+Address::Address(uint64_t address) {
+	this->index = get_index(address);
+	this->tag = get_tag(address);
+	this->offset = get_offset(address);
+	this->valid = true;
+}
+
+Address::Address() {
+	this->index = 0;
+	this->tag = 0;
+	this->offset = 0;
+	this->valid = false;
+}
+
+/*
+ * Block
+ */
+
+Block::Block(uint64_t tag, uint8_t valid) :
+		tag(tag), valid(valid), is_null(false) {
+}
+
+Block::Block() :
+		tag(0), valid(0), is_null(true) {
+}
+
 /*
  * Cache Set
  */
 CacheSet::CacheSet(uint64_t num_blocks, char sto_p, char rpl_p, int64_t index) :
-		num_blocks(num_blocks), replace_policy(rpl_p), storage_policy(sto_p),  index(
+		num_blocks(num_blocks), replace_policy(rpl_p), storage_policy(sto_p), index(
 				index), mru_tag(0) {
 }
 
@@ -338,13 +353,13 @@ VictimCache::VictimCache(uint64_t num_blocks) :
 }
 
 Address VictimCache::convert_address(const Address& adr) {
-	Address a;
-	a.tag = ((adr.tag << (g_tag_offset - g_index_offset)) | adr.index)
+	Address address;
+	address.tag = ((adr.tag << (g_tag_offset - g_index_offset)) | adr.index)
 			& g_tag_mask;
-	a.index = adr.index;
-	a.offset = adr.offset;
-	a.valid = true;
-	return a;
+	address.index = adr.index;
+	address.offset = adr.offset;
+	address.valid = true;
+	return address;
 }
 
 Address VictimCache::add(const Address& adr) {

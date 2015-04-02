@@ -57,13 +57,12 @@ static const char     WRITE = 'w';
  * Block
  */
 class Block {
-private:
 public:
 	uint64_t tag;
 	uint8_t valid;
 	bool is_null;
-	Block(uint64_t tag, uint8_t valid): tag(tag), valid(valid), is_null(false) {};
-	Block(): valid(0), is_null(true), tag(0){};
+	Block(uint64_t tag, uint8_t valid);
+	Block();
 	virtual ~Block(){};
 };
 
