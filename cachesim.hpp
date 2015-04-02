@@ -59,10 +59,11 @@ static const char     WRITE = 'w';
 class Block {
 private:
 public:
+	uint64_t tag;
 	uint8_t valid;
 	bool is_null;
-	Block(uint8_t valid): valid(valid), is_null(false) {};
-	Block(): valid(0), is_null(true){};
+	Block(uint64_t tag, uint8_t valid): tag(tag), valid(valid), is_null(false) {};
+	Block(): valid(0), is_null(true), tag(0){};
 	virtual ~Block(){};
 };
 
@@ -88,34 +89,30 @@ public:
 	int count = 0;
 	int64_t index;
 	std::unordered_map<uint64_t, Block> block_map;
-	CacheSet(uint64_t num_blocks, char sto_p, char rpl_p, int64_t index) {
-		this->num_blocks = num_blocks;
-		this->replace_policy = rpl_p;
-		this->storage_policy = sto_p;
-		this->index = index;
-	};
-	CacheSet(){};
+	CacheSet(uint64_t num_blocks, char sto_p, char rpl_p, int64_t index);
 	virtual ~CacheSet(){};
 	bool is_full();
 
-	virtual Address add(const Address& address); // add a tag, return -1 if no block is popped
+	// add a block from the address, return invalid if no block is popped
+	virtual Address add(const Address& address);
 	virtual int64_t remove(const Address& address);
 	virtual int64_t remove(uint64_t tag);
 	virtual bool access(const Address& address);
-	size_t get_map_size(){return block_map.size();};
 	virtual Block evict();
+	virtual void print_queue();
+
+	size_t get_size();
 };
 
 class VictimCache: public CacheSet{
 public:
 	VictimCache(uint64_t num_blocks);
-	VictimCache():CacheSet(){};
 	virtual ~VictimCache(){};
 
 	Address convert_address(const Address& address);
-	virtual Address add(const Address& address);
-	virtual bool access(const Address& address);
-	virtual int64_t remove(const Address& address);
+	virtual Address add(const Address& address) override;
+	virtual bool access(const Address& address) override;
+	virtual int64_t remove(const Address& address) override;
 };
 
 uint64_t get_tag(uint64_t address);

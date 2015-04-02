@@ -15,8 +15,7 @@ static char g_storage_policy;
 static char g_replace_policy;
 
 std::map<uint64_t, CacheSet> g_sets;
-//VictimCache g_victim;
-std::shared_ptr<VictimCache> g_victim;
+std::shared_ptr<CacheSet> g_victim;
 
 Address::Address(uint64_t address) {
 	this->index = get_index(address);
@@ -68,7 +67,6 @@ void setup_cache(uint64_t c, uint64_t b, uint64_t s, uint64_t v, char st,
 		g_offset_mask |= (1 << i);
 	}
 
-//	g_victim = VictimCache(g_num_victim_blocks);
 	g_victim.reset(new VictimCache(g_num_victim_blocks));
 	// init cache sets
 	int num_sets = g_cache_size / (g_block_size * g_num_blocks);
@@ -138,7 +136,6 @@ void cache_access(char rw, uint64_t address, cache_stats_t* p_stats) {
  * @p_stats Pointer to the statistics structure
  */
 void complete_cache(cache_stats_t *p_stats) {
-	// todo
 	p_stats->misses = p_stats->write_misses_combined
 			+ p_stats->read_misses_combined;
 	p_stats->miss_rate = (double) p_stats->misses / (double) p_stats->accesses;
@@ -160,7 +157,6 @@ void complete_cache(cache_stats_t *p_stats) {
 
 	uint64_t total_num_blocks = g_cache_size / g_block_size;
 	uint64_t overhead = 0;
-
 	uint64_t dirty_bits = 1;
 	uint64_t valid_bits = 0;
 	uint64_t controller_bits = 0;
@@ -188,7 +184,6 @@ void complete_cache(cache_stats_t *p_stats) {
 
 uint64_t get_tag(uint64_t address) {
 	return g_tag_mask & (address >> g_tag_offset);
-//	return address >> g_tag_offset;
 }
 
 uint64_t get_index(uint64_t address) {
@@ -202,8 +197,19 @@ uint64_t get_offset(uint64_t address) {
 /*
  * Cache Set
  */
+CacheSet::CacheSet(uint64_t num_blocks, char sto_p, char rpl_p, int64_t index) {
+	this->num_blocks = num_blocks;
+	this->replace_policy = rpl_p;
+	this->storage_policy = sto_p;
+	this->index = index;
+};
+
 bool CacheSet::is_full() {
 	return block_map.size() >= this->num_blocks;
+}
+
+size_t CacheSet::get_size() {
+	return block_map.size();
 }
 
 Address CacheSet::add(const Address& address) {
@@ -215,6 +221,7 @@ Address CacheSet::add(const Address& address) {
 		}
 		// bring to the front
 		access(address);
+		// todo
 		Address adr;
 		return adr;
 	}
@@ -222,15 +229,14 @@ Address CacheSet::add(const Address& address) {
 	Address adr;
 	if (is_full()) {
 		// need to evict
-		auto removed = block_queue.back();
 		auto removed_block = evict();
 
-		adr.tag = removed;
+		adr.tag = removed_block.tag;
 		adr.index = address.index;
 		adr.valid = true;
 	}
 	// move to MRU
-	Block block = Block(which_half(address.offset));
+	Block block = Block(address.tag, which_half(address.offset));
 	block_map.insert(std::make_pair(address.tag, block));
 	block_queue.push_front(address.tag);
 	return adr;
@@ -259,14 +265,17 @@ Block CacheSet::evict() {
 	if (replace_policy == LRU) {
 		iter--;
 	} else if (replace_policy == NMRU_FIFO) {
-		auto iter = block_queue.begin();
 		iter = block_queue.begin();
 		iter++;
 	}
+//	print_queue();
+//	std::cout <<"evicting "<< *iter << std::endl;
 	auto map_iter = block_map.find(*iter);
 	Block block = map_iter->second;
 	block_map.erase(map_iter);
 	block_queue.erase(iter);
+
+//	print_queue();
 	return block;
 }
 
@@ -289,7 +298,7 @@ bool CacheSet::access(const Address& address) {
 			}
 		}
 		// hit
-		// move to MRU
+		// move to the MRU position (front)
 		auto i = std::find(block_queue.begin(), block_queue.end(), tag);
 		auto copy = *i;
 		block_queue.erase(i);
@@ -298,11 +307,12 @@ bool CacheSet::access(const Address& address) {
 #ifdef _DEBUG
 		std::cout << " hit" << std::endl;
 #endif
+//		print_queue();
 		return true;
 	}
 
 #ifdef _DEBUG
-	std::cout << " miss out" << std::endl;
+	std::cout << " miss" << std::endl;
 #endif
 	// miss
 	return false;
@@ -312,6 +322,13 @@ uint8_t CacheSet::which_half(uint64_t offset) {
 	if (offset < g_block_size / 2)
 		return 1;
 	return 2;
+}
+
+void CacheSet::print_queue() {
+	for(auto e: block_queue) {
+		std::cout<<e<<",";
+	}
+	std::cout<<std::endl;
 }
 
 /*
