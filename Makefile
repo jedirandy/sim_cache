@@ -1,5 +1,5 @@
 #DEBUG=-D_DEBUG
-CXXFLAGS := -g -Wall -std=c++0x -o3 -lm $(DEBUG) 
+CXXFLAGS := -g -Wall -std=c++0x -O2 -lm $(DEBUG) 
 CXX=c++
 all: cachesim
 
