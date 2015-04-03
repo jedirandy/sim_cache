@@ -430,11 +430,11 @@ void Cache::update_stats(cache_stats_t* p_stats) {
 	p_stats->avg_access_time = (p_stats->hit_time * hits
 			+ (p_stats->miss_penalty + p_stats->hit_time) * misses) / total;
 
-	uint64_t total_num_blocks = cache_size / block_size;
-	uint64_t overhead = 0;
-	uint64_t valid_bits = 0;
-	uint64_t controller_bits = 0;
-	uint64_t dirty_bits = 1;
+	int total_num_blocks = cache_size / block_size;
+	int overhead = 0;
+	int valid_bits = 0;
+	int controller_bits = 0;
+	int dirty_bits = 1;
 	if (storage_policy == BLOCKING) {
 		valid_bits = 1;
 	} else {
@@ -454,8 +454,7 @@ void Cache::update_stats(cache_stats_t* p_stats) {
 					+ 8);
 
 	p_stats->storage_overhead = overhead;
-	uint64_t total_bits = 0;
-	total_bits = (total_num_blocks + num_victim_blocks) * block_size * 8;
+	int total_bits = (total_num_blocks + num_victim_blocks) * block_size * 8;
 
 	p_stats->storage_overhead_ratio = (double) overhead / (double) total_bits;
 }
