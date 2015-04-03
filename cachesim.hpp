@@ -70,7 +70,7 @@ struct Address {
 	uint64_t tag;
 	uint64_t index;
 	uint64_t offset;
-	bool valid;
+	bool is_valid;
 	Address(uint64_t address);
 	Address();
 };
@@ -83,7 +83,7 @@ protected:
 	std::deque<uint64_t> block_queue;
 	char replace_policy;
 	char storage_policy;
-	uint8_t which_half(uint64_t offset);
+
 
 public:
 	int count = 0;
@@ -93,9 +93,12 @@ public:
 	CacheSet(uint64_t num_blocks, char rpl_p, char sto_p, int64_t index);
 	virtual ~CacheSet(){};
 	bool is_full();
+	uint8_t which_half(uint64_t offset);
 
-	// add a block from the address, return invalid if no block is popped
-	virtual Address add(const Address& address);
+	// add a block from the address, return popped address and block
+	virtual std::pair<Address, Block> add(const Address& address);
+	virtual std::pair<Address, Block> add(const Address& address, const Block& block);
+	virtual Block fetch(const Address& address);
 	virtual int64_t remove(const Address& address);
 	virtual int64_t remove(uint64_t tag);
 	virtual bool access(const Address& address);
@@ -111,8 +114,10 @@ public:
 	virtual ~VictimCache(){};
 
 	Address convert_address(const Address& address);
-	virtual Address add(const Address& address) override;
+	virtual std::pair<Address, Block> add(const Address& address) override;
+	virtual std::pair<Address, Block> add(const Address& address, const Block& block) override;
 	virtual bool access(const Address& address) override;
+	virtual Block fetch(const Address &address) override;
 	virtual int64_t remove(const Address& address) override;
 };
 

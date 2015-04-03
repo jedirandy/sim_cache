@@ -77,18 +77,19 @@ void cache_access(char rw, uint64_t address, cache_stats_t* p_stats) {
 	} else {
 		p_stats->reads++;
 	}
+
 	Address adr(address);
 	auto& set = g_sets.at(adr.index);
 	if (set.access(adr)) {
 		// hit
 	} else if (g_victim->access(adr)) {
-		// miss in main, hit in VC
-		// 1. replace the cache in main by the hit cache in VC
+		// miss in the main cache, hit in the victim cache
+		// 1. replace the cache in the MC by the hit cache in the VC
 		// 2. move the replaced block to the MRU position
-		auto removed = set.add(adr);
+		auto evicted = set.add(adr);
 		g_victim->remove(adr);
-		if (removed.valid)
-			g_victim->add(removed);
+		if (evicted.first.is_valid)
+			g_victim->add(evicted.first, evicted.second);
 
 		if (rw == WRITE) {
 			p_stats->write_misses++;
@@ -97,11 +98,6 @@ void cache_access(char rw, uint64_t address, cache_stats_t* p_stats) {
 		}
 	} else {
 		// miss both
-		// fetch
-		auto removed = set.add(adr);
-		if (removed.valid)
-			g_victim->add(removed);
-
 		if (rw == WRITE) {
 			p_stats->write_misses++;
 			p_stats->write_misses_combined++;
@@ -109,8 +105,29 @@ void cache_access(char rw, uint64_t address, cache_stats_t* p_stats) {
 			p_stats->read_misses++;
 			p_stats->read_misses_combined++;
 		}
-
-		p_stats->hit_time += 0.2 * g_num_blocks;
+		if (g_storage_policy == SUBBLOCKING) {
+			// partial-miss in the MC
+			Block block = set.fetch(adr);
+			if (!block.is_null) {
+				set.add(adr, block);
+				return;
+			}
+			// if found a partial-miss block in VC
+			// 1. update it's valid bit
+			// 2. move to the main cache
+			block = g_victim->fetch(adr);
+			if (!block.is_null) {
+				block.valid |= set.which_half(adr.offset);
+				auto evicted = set.add(adr, block);
+				g_victim->remove(adr);
+				g_victim->add(evicted.first, evicted.second);
+				return;
+			}
+		}
+		// fetch from memory
+		auto evicted = set.add(adr);
+		if (evicted.first.is_valid)
+			g_victim->add(evicted.first, evicted.second);
 	}
 }
 
@@ -161,7 +178,7 @@ void complete_cache(cache_stats_t *p_stats) {
 			* (dirty_bits + valid_bits + g_tag_bits + controller_bits);
 	// victim: num_blocks * (dirty + valid + tags + index + LRU controller bits)
 	overhead += g_num_victim_blocks
-			* (dirty_bits + 1 + g_tag_bits + g_index_bits + 8);
+			* (dirty_bits + valid_bits + g_tag_bits + g_index_bits + 8);
 
 	p_stats->storage_overhead = overhead;
 	uint64_t total_bits = 0;
@@ -189,14 +206,14 @@ Address::Address(uint64_t address) {
 	this->index = get_index(address);
 	this->tag = get_tag(address);
 	this->offset = get_offset(address);
-	this->valid = true;
+	this->is_valid = true;
 }
 
 Address::Address() {
 	this->index = 0;
 	this->tag = 0;
 	this->offset = 0;
-	this->valid = false;
+	this->is_valid = false;
 }
 
 /*
@@ -227,34 +244,46 @@ size_t CacheSet::get_size() {
 	return block_map.size();
 }
 
-Address CacheSet::add(const Address& address) {
+std::pair<Address, Block> CacheSet::add(const Address& address,
+		const Block& block) {
+	Block new_block;
+	Block evicted_block;
+	Address evicted_address;
+	if (!address.is_valid) {
+		return std::make_pair(evicted_address, new_block);
+	}
+
 	if (storage_policy == SUBBLOCKING) {
 		// check if exist
 		auto iter = block_map.find(address.tag);
 		if (iter != block_map.end()) {
+			// update valid bit
 			iter->second.valid |= which_half(address.offset);
+			access(address);
+			return std::make_pair(evicted_address, new_block);
 		}
-		// bring to the front
-		access(address);
-		// todo
-		Address adr;
-		return adr;
 	}
 
-	Address adr;
 	if (is_full()) {
-		// need to evict
-		auto removed_block = evict();
-
-		adr.tag = removed_block.tag;
-		adr.index = address.index;
-		adr.valid = true;
+		// full, need to evict
+		evicted_block = evict();
+		evicted_address.tag = evicted_block.tag;
+		evicted_address.index = address.index;
+		evicted_address.is_valid = true;
 	}
-	// move to the MRU position
-	Block block = Block(address.tag, which_half(address.offset));
-	block_map.insert(std::make_pair(address.tag, block));
+	if (block.is_null) {
+		new_block = Block(address.tag, which_half(address.offset));
+	} else {
+		new_block = block;
+	}
+	block_map.insert(std::make_pair(address.tag, new_block));
 	block_queue.emplace_back(address.tag);
-	return adr;
+	return std::make_pair(evicted_address, evicted_block);
+}
+
+std::pair<Address, Block> CacheSet::add(const Address& address) {
+	Block blk;
+	return add(address, blk);
 }
 
 int64_t CacheSet::remove(uint64_t tag) {
@@ -277,10 +306,8 @@ int64_t CacheSet::remove(const Address& address) {
 
 Block CacheSet::evict() {
 	auto iter = block_queue.begin();
-	if (replace_policy == NMRU_FIFO) {
-		if (*iter == mru_tag) {
-			iter++;
-		}
+	if (replace_policy == NMRU_FIFO && *iter == mru_tag) {
+		iter++;
 	}
 	auto map_iter = block_map.find(*iter);
 	Block block = map_iter->second;
@@ -294,15 +321,17 @@ bool CacheSet::access(const Address& address) {
 	uint64_t tag = address.tag;
 #ifdef _DEBUG
 	std::cout << "accessing tag:" << address.tag << " index:" << address.index
-	<< " offset:" << address.offset << " set number:" << index;
+			<< " offset:" << address.offset << " set number:" << index;
 #endif
-
-	if (block_map.find(tag) != block_map.end()) {
+	auto iter = block_map.find(tag);
+	if (iter != block_map.end()) {
 		if (storage_policy == SUBBLOCKING) {
-			auto block = block_map.find(tag)->second;
-			if (!(block.valid && which_half(address.offset))) {
+			auto block = iter->second;
+			if (!(block.valid & which_half(address.offset))) {
 #ifdef _DEBUG
-				std::cout << " Sub-blocking miss";
+				std::cout << " Sub-blocking miss, valid:" << block.valid
+						<< " required:" << which_half(address.offset)
+						<< std::endl;
 #endif
 				// invalid half
 				return false;
@@ -332,6 +361,15 @@ bool CacheSet::access(const Address& address) {
 	return false;
 }
 
+Block CacheSet::fetch(const Address& address) {
+	Block block;
+	auto iter = block_map.find(address.tag);
+	if (iter != block_map.end()) {
+		block = iter->second;
+	}
+	return block;
+}
+
 uint8_t CacheSet::which_half(uint64_t offset) {
 	if (offset < g_block_size / 2)
 		return 1;
@@ -358,12 +396,17 @@ Address VictimCache::convert_address(const Address& adr) {
 			& g_tag_mask;
 	address.index = adr.index;
 	address.offset = adr.offset;
-	address.valid = true;
+	address.is_valid = adr.is_valid;
 	return address;
 }
 
-Address VictimCache::add(const Address& adr) {
+std::pair<Address, Block> VictimCache::add(const Address& adr) {
 	return CacheSet::add(convert_address(adr));
+}
+
+std::pair<Address, Block> VictimCache::add(const Address& adr,
+		const Block& block) {
+	return CacheSet::add(convert_address(adr), block);
 }
 
 int64_t VictimCache::remove(const Address& adr) {
@@ -372,4 +415,8 @@ int64_t VictimCache::remove(const Address& adr) {
 
 bool VictimCache::access(const Address& adr) {
 	return CacheSet::access(convert_address(adr));
+}
+
+Block VictimCache::fetch(const Address& adr) {
+	return CacheSet::fetch(convert_address(adr));
 }
