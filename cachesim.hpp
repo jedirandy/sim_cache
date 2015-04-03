@@ -5,8 +5,6 @@
 #include <stdint.h>
 #include <math.h>
 #include <memory>
-#include <vector>
-#include <map>
 #include <deque>
 #include <algorithm>
 #include <iostream>
@@ -159,7 +157,7 @@ private:
 	static uint64_t num_victim_blocks;
 	static char replace_policy;
 	static char storage_policy;
-	std::map<uint64_t, CacheSet> sets;
+	std::unordered_map<uint64_t, CacheSet> sets;
 	std::shared_ptr<CacheSet> victim;
 public:
 	Cache(uint64_t cache_size, uint64_t block_size, uint64_t num_blocks,
