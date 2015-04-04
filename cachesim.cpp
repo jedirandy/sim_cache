@@ -305,8 +305,8 @@ Block CacheSet::fetch(const Address& address) {
 }
 
 void CacheSet::print_queue() {
-	for (auto e : block_queue) {
-		std::cout << e << ",";
+	for (auto e = block_queue.begin(); e!=block_queue.end(); ++e) {
+		std::cout << *e << ",";
 	}
 	std::cout << std::endl;
 }
