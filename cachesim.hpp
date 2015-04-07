@@ -141,12 +141,12 @@ public:
 	virtual ~VictimCache() {
 	}
 
-	virtual std::pair<Address, Block> add(const Address& address) override;
+	virtual std::pair<Address, Block> add(const Address& address);
 	virtual std::pair<Address, Block> add(const Address& address,
-			const Block& block) override;
-	virtual bool access(const Address& address) override;
-	virtual Block fetch(const Address &address) override;
-	virtual int64_t remove(const Address& address) override;
+			const Block& block);
+	virtual bool access(const Address& address);
+	virtual Block fetch(const Address &address);
+	virtual int64_t remove(const Address& address);
 };
 
 class Cache {
