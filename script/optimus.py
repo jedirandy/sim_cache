@@ -12,23 +12,17 @@ import math
 # t - fetch policy: (B)locking (S)ubblocking
 # r - replacement policy: (L)RU (N)MRU-FIFO
 def main(cmd, trace, output):
-	# fetch_policies = ['B', 'S']
-	# replace_policies = ['L', 'N']
-	fetch_policies = ['B']
-	replace_policies = ['L']
+	fetch_policies = ['B', 'S']
+	replace_policies = ['L', 'N']
 	# brutas!
 	for t in fetch_policies:
 		for r in replace_policies:
 			for c in range(15, 16):
-				# for b in range(6, 13):
-				for b in range(2, 14):
-					# for s in range(0, c - b + 1):
-					# for s in range(1, 5):
-					for s in range(2, 3):
-						# if s >= c - b:
-							# continue
-						# for v in range(0, s + 1): # v should <= s
-						for v in range(2, 3): # v should <= s
+				for b in range(6, 14):
+					for s in range(0, c - b + 1):
+						if s >= c - b:
+							continue
+						for v in range(0, s + 1): # v should <= s
 							writeResult(c, b, s, v, t, r, cmd, trace, output)
 
 
@@ -77,5 +71,3 @@ if __name__ == '__main__':
 	main(args.cmd, args.trace, args.output)
 	end = time.time()
 	print 'elapsed time: ', round(end - start, 3), 'seconds'
-	# todo
-	# play sound :)
